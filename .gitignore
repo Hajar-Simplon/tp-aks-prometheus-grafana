@@ -1,0 +1,20 @@
+# Personal documentation
+personal-notes/
+
+# Local environment files
+.env
+*.local.yaml
+
+# Kubernetes secrets containing real credentials
+k8s/02-alertmanager/discord-secret.yaml
+k8s/03-grafana/grafana-admin-secret.yaml
+
+# Kubernetes local configuration
+.kube/
+kubeconfig*
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

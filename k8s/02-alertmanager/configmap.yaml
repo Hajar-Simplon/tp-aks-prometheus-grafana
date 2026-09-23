@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: monitoring-stack
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+
+    route:
+      receiver: discord-alerts
+      group_by:
+        - alertname
+        - namespace
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 4h
+
+    receivers:
+      - name: discord-alerts
+        discord_configs:
+          - webhook_url_file: /etc/alertmanager/secrets/discord/webhook-url
+            send_resolved: true
