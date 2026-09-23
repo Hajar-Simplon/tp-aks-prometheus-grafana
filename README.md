@@ -1,93 +1,280 @@
-# tp-aks-prometheus-grafana
+# AKS Prometheus Grafana Monitoring Stack
 
+A manually deployed Kubernetes monitoring stack running on Azure Kubernetes Service (AKS).
 
+The project uses raw Kubernetes YAML manifests only:
 
-## Getting started
+- No Helm charts
+- No Prometheus Operator
+- No prebuilt `kube-prometheus-stack`
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Architecture
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
+```text
+Node Exporter ──────────┐
+                        ├──> Prometheus ──> Alertmanager ──> Discord
+kube-state-metrics ─────┘         │
+                                  └──> Grafana
+                                       ├── Node dashboard
+                                       └── Pod dashboard
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/hajarmezouar/tp-aks-prometheus-grafana.git
-git branch -M main
-git push -uf origin main
+
+## Components
+
+| Component | Workload | Image |
+|---|---|---|
+| Prometheus | Deployment | `prom/prometheus:v3.13.3` |
+| Alertmanager | Deployment | `prom/alertmanager:v0.34.1` |
+| Grafana | Deployment | `grafana/grafana:13.1.6` |
+| Node Exporter | DaemonSet | `prom/node-exporter:v1.12.1` |
+| kube-state-metrics | Deployment | `registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1` |
+
+## Features
+
+- Node metrics collected with Node Exporter
+- Kubernetes object metrics collected with kube-state-metrics
+- Persistent storage for Prometheus, Alertmanager, and Grafana
+- Automatic Grafana datasource provisioning
+- Node and pod dashboards
+- Prometheus alert rules
+- Alertmanager Discord notifications
+- Firing and resolved alert notifications
+- Least-privilege Kubernetes RBAC
+- Health and readiness probes
+- CPU and memory requests and limits
+
+## Repository structure
+
+```text
+.
+├── dashboards/
+│   ├── nodes/
+│   │   └── node-exporter-full.json
+│   └── pods/
+│       └── kube-state-metrics-v2.json
+├── docs/
+│   ├── images.md
+│   └── screenshots/
+├── k8s/
+│   ├── 00-namespace/
+│   ├── 01-prometheus/
+│   ├── 02-alertmanager/
+│   ├── 03-grafana/
+│   ├── 04-node-exporter/
+│   └── 05-kube-state-metrics/
+└── tests/
+    └── crashloop-pod.yaml
 ```
 
-## Integrate with your tools
+## Prerequisites
 
-* [Set up project integrations](https://gitlab.com/hajarmezouar/tp-aks-prometheus-grafana/-/settings/integrations)
+- An AKS cluster
+- Azure CLI
+- `kubectl`
+- Access to the target cluster
+- A Discord webhook for alert notifications
 
-## Collaborate with your team
+Verify the Kubernetes context:
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+```bash
+kubectl config current-context
+kubectl get nodes
+```
 
-## Test and Deploy
+## Secret configuration
 
-Use the built-in continuous integration in GitLab.
+Secrets are created directly in Kubernetes and are not committed to Git.
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+### Discord webhook
 
-***
+```bash
+read -s -p "Discord webhook URL: " DISCORD_WEBHOOK_URL
+echo
 
-# Editing this README
+kubectl create secret generic alertmanager-discord \
+  --namespace monitoring \
+  --from-literal=webhook-url="$DISCORD_WEBHOOK_URL" \
+  --dry-run=client \
+  -o yaml | kubectl apply -f -
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+unset DISCORD_WEBHOOK_URL
+```
 
-## Suggestions for a good README
+### Grafana administrator
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```bash
+read -s -p "Grafana admin password: " GRAFANA_ADMIN_PASSWORD
+echo
 
-## Name
-Choose a self-explaining name for your project.
+kubectl create secret generic grafana-admin \
+  --namespace monitoring \
+  --from-literal=admin-user=admin \
+  --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
+  --dry-run=client \
+  -o yaml | kubectl apply -f -
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+unset GRAFANA_ADMIN_PASSWORD
+```
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+## Deployment
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+Deploy the namespace first:
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```bash
+kubectl apply -f k8s/00-namespace/
+```
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+Create the two Secrets, then deploy the components:
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+```bash
+kubectl apply -f k8s/04-node-exporter/
+kubectl apply -f k8s/05-kube-state-metrics/
+kubectl apply -f k8s/02-alertmanager/
+kubectl apply -f k8s/01-prometheus/
+kubectl apply -f k8s/03-grafana/
+```
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+## Verification
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+```bash
+kubectl get pods -n monitoring
+kubectl get services -n monitoring
+kubectl get pvc -n monitoring
+```
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+All application pods should be `Running`, and all PVCs should be `Bound`.
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+Verify the Node Exporter DaemonSet:
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+```bash
+kubectl get daemonset node-exporter -n monitoring
+```
 
-## License
-For open source projects, say how it is licensed.
+Validate the configurations:
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+```bash
+kubectl exec -n monitoring deployment/prometheus \
+  -- promtool check config /etc/prometheus/config/prometheus.yml
+
+kubectl exec -n monitoring deployment/prometheus \
+  -- promtool check rules /etc/prometheus/rules/alerts.yml
+
+kubectl exec -n monitoring deployment/alertmanager \
+  -- amtool check-config /etc/alertmanager/alertmanager.yml
+```
+
+## Local access
+
+### Prometheus
+
+```bash
+kubectl port-forward -n monitoring service/prometheus 19090:9090
+```
+
+Open <http://localhost:19090>.
+
+### Alertmanager
+
+```bash
+kubectl port-forward -n monitoring service/alertmanager 19093:9093
+```
+
+Open <http://localhost:19093>.
+
+### Grafana
+
+```bash
+kubectl port-forward -n monitoring service/grafana 13000:3000
+```
+
+Open <http://localhost:13000>.
+
+## Prometheus targets
+
+The following scrape jobs should be `UP`:
+
+- `prometheus`
+- `alertmanager`
+- `node-exporter`
+- `kube-state-metrics`
+
+Check them at:
+
+```text
+http://localhost:19090/targets
+```
+
+## Dashboards
+
+The project uses:
+
+- Node Exporter Full — Grafana dashboard ID `1860`
+- Kube State Metrics v2 — Grafana dashboard ID `21742`
+- Kubernetes Pods Health Overview — dashboard ID `13826`
+
+Exported dashboard JSON files are available under `dashboards/`.
+
+## Alert rules
+
+The project includes:
+
+- `PodCrashLooping`
+- `PodRestartingTooOften`
+- `NodeExporterDown`
+- `KubeStateMetricsDown`
+
+## CrashLoopBackOff test
+
+Deploy the intentionally failing pod:
+
+```bash
+kubectl apply -f tests/crashloop-pod.yaml
+```
+
+Observe its status:
+
+```bash
+kubectl get pod crashloop-demo -n monitoring --watch
+```
+
+The pod eventually enters `CrashLoopBackOff`. Prometheus changes the alert from `Pending` to `Firing`, and Alertmanager sends a Discord notification.
+
+Clean up the test:
+
+```bash
+kubectl delete -f tests/crashloop-pod.yaml
+```
+
+Alertmanager then sends a `RESOLVED` notification.
+
+## Evidence
+
+Only screenshots that provide positive, reviewable evidence are included below.
+
+### Kubernetes state dashboard
+
+![Kube State Metrics dashboard](docs/screenshots/01-kube-state-metrics-dashboard.png)
+
+### Prometheus firing alert
+
+![Prometheus firing alert](docs/screenshots/02-prometheus-alert-firing.png)
+
+### Discord firing notification
+
+![Discord firing alert](docs/screenshots/03-discord-alert-firing.png)
+
+### Prometheus alerts resolved
+
+![Prometheus alerts resolved](docs/screenshots/04-prometheus-alerts-resolved.png)
+
+### Discord resolved notification
+
+![Discord resolved alert](docs/screenshots/05-discord-alert-resolved.png)
+
+## Security
+
+- Webhook URLs and passwords are stored in Kubernetes Secrets.
+- Secret values are excluded from Git.
+- Containers run without privilege escalation.
+- RBAC permissions are read-only and limited to required resources.
+- Services use `ClusterIP` and are accessed locally with port forwarding.

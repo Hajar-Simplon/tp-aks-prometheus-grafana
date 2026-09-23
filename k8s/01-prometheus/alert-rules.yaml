@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: monitoring-stack
+data:
+  alerts.yml: |
+    groups:
+      - name: kubernetes-alerts
+        rules:
+          - alert: PodCrashLooping
+            expr: kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping"
+              description: "Container {{ $labels.container }} has been in CrashLoopBackOff for more than one minute."
+
+          - alert: PodRestartingTooOften
+            expr: increase(kube_pod_container_status_restarts_total[5m]) > 3
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is restarting frequently"
+              description: "Container {{ $labels.container }} restarted more than three times during the last five minutes."
+
+          - alert: NodeExporterDown
+            expr: up{job="node-exporter"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Node Exporter is unavailable"
+              description: "Prometheus cannot scrape Node Exporter on node {{ $labels.node }}."
+
+          - alert: KubeStateMetricsDown
+            expr: up{job="kube-state-metrics"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "kube-state-metrics is unavailable"
+              description: "Prometheus cannot scrape kube-state-metrics."
