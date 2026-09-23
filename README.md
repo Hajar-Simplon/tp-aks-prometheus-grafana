@@ -1,6 +1,6 @@
 # AKS Prometheus Grafana Monitoring Stack
 
-A manually deployed Kubernetes monitoring stack running on Azure Kubernetes Service (AKS).
+A Kubernetes monitoring stack running on Azure Kubernetes Service (AKS), defined manually with raw manifests and continuously reconciled from GitLab by Flux.
 
 The project uses raw Kubernetes YAML manifests only:
 
@@ -11,6 +11,8 @@ The project uses raw Kubernetes YAML manifests only:
 ## Architecture
 
 ```text
+GitLab main branch ──> Flux ──> AKS desired state
+
 Node Exporter ──────────┐
                         ├──> Prometheus ──> Alertmanager ──> Discord
 kube-state-metrics ─────┘         │
@@ -39,6 +41,7 @@ kube-state-metrics ─────┘         │
 - Prometheus alert rules
 - Alertmanager Discord notifications
 - Firing and resolved alert notifications
+- GitOps continuous delivery with Flux
 - Least-privilege Kubernetes RBAC
 - Health and readiness probes
 - CPU and memory requests and limits
@@ -47,6 +50,10 @@ kube-state-metrics ─────┘         │
 
 ```text
 .
+├── clusters/
+│   └── aks-hmezouar-tp/
+│       ├── flux-system/
+│       └── monitoring-kustomization.yaml
 ├── dashboards/
 │   ├── nodes/
 │   │   └── node-exporter-full.json
@@ -71,6 +78,7 @@ kube-state-metrics ─────┘         │
 - An AKS cluster
 - Azure CLI
 - `kubectl`
+- Flux CLI
 - Access to the target cluster
 - A Discord webhook for alert notifications
 
@@ -132,6 +140,38 @@ kubectl apply -f k8s/05-kube-state-metrics/
 kubectl apply -f k8s/02-alertmanager/
 kubectl apply -f k8s/01-prometheus/
 kubectl apply -f k8s/03-grafana/
+```
+
+## GitOps continuous delivery with Flux
+
+Flux is bootstrapped in the AKS cluster and watches the `main` branch of this repository. The `monitoring` Flux Kustomization reconciles the raw Kubernetes manifests under `k8s/`.
+
+```text
+Feature branch → Merge Request → main → Flux reconciliation → AKS
+```
+
+The GitOps configuration is stored under `clusters/aks-hmezouar-tp/`:
+
+- `flux-system/` contains the bootstrapped Flux controllers and Git source.
+- `monitoring-kustomization.yaml` maps the repository's `k8s/` directory to the AKS cluster.
+- Pruning is enabled, so resources removed from Git are also removed from the cluster.
+
+Verify the reconciliation state:
+
+```bash
+flux check
+flux get sources git -A
+flux get kustomizations -A
+kubectl get pods -n flux-system
+kubectl get pods -n monitoring
+```
+
+Both `flux-system` and `monitoring` should report `READY=True`, and all monitoring pods should be `Running`.
+
+To request an immediate reconciliation after merging a change:
+
+```bash
+flux reconcile kustomization monitoring --with-source
 ```
 
 ## Verification
@@ -271,10 +311,17 @@ Only screenshots that provide positive, reviewable evidence are included below.
 
 ![Discord resolved alert](docs/screenshots/05-discord-alert-resolved.png)
 
+### Flux GitOps reconciliation
+
+The Flux controllers and monitoring Kustomization are ready, and every monitoring workload is running on AKS.
+
+![Flux GitOps reconciliation](docs/screenshots/06-flux-gitops-reconciliation.png)
+
 ## Security
 
 - Webhook URLs and passwords are stored in Kubernetes Secrets.
 - Secret values are excluded from Git.
+- Flux uses a read-only GitLab deploy token after bootstrap; the temporary personal access token should then be revoked.
 - Containers run without privilege escalation.
 - RBAC permissions are read-only and limited to required resources.
 - Services use `ClusterIP` and are accessed locally with port forwarding.
